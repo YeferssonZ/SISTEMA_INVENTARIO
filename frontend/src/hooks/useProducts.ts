@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { inventoryService } from '../services';
 import type { Product, SearchFilters } from '../types';
 
@@ -8,7 +8,7 @@ export const useProducts = (filters?: SearchFilters) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -22,13 +22,13 @@ export const useProducts = (filters?: SearchFilters) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [filters]);
 
   const createProduct = async (productData: any): Promise<Product> => {
     try {
       setError(null);
       const product = await inventoryService.createProduct(productData);
-      setProducts(prev => [product, ...prev]);
+      await fetchProducts(); // Refrescar la lista completa con filtros
       return product;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Error al crear producto';
@@ -41,9 +41,7 @@ export const useProducts = (filters?: SearchFilters) => {
     try {
       setError(null);
       const updatedProduct = await inventoryService.updateProduct(id, productData);
-      setProducts(prev => prev.map(product => 
-        product.id === id ? updatedProduct : product
-      ));
+      await fetchProducts(); // Refrescar la lista completa con filtros
       return updatedProduct;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Error al actualizar producto';
@@ -56,7 +54,7 @@ export const useProducts = (filters?: SearchFilters) => {
     try {
       setError(null);
       await inventoryService.deleteProduct(id);
-      setProducts(prev => prev.filter(product => product.id !== id));
+      await fetchProducts(); // Refrescar la lista completa con filtros
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Error al eliminar producto';
       setError(errorMsg);
@@ -68,9 +66,7 @@ export const useProducts = (filters?: SearchFilters) => {
     try {
       setError(null);
       const updatedProduct = await inventoryService.updateProductStock(id, stockData);
-      setProducts(prev => prev.map(product => 
-        product.id === id ? updatedProduct : product
-      ));
+      await fetchProducts(); // Refrescar la lista completa con filtros
       return updatedProduct;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Error al actualizar stock';
@@ -81,7 +77,7 @@ export const useProducts = (filters?: SearchFilters) => {
 
   useEffect(() => {
     fetchProducts();
-  }, []);
+  }, [fetchProducts]);
 
   return {
     products,

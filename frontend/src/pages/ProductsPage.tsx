@@ -8,6 +8,7 @@ import { formatCurrency } from '../utils';
 const ProductsPage: React.FC = () => {
   const { user } = useAuth();
   const [filters, setFilters] = useState<SearchFilters>({
+    search: '',
     page: 1,
     limit: 10,
     sortBy: 'name',
@@ -15,8 +16,35 @@ const ProductsPage: React.FC = () => {
     isActive: true // Por defecto solo mostrar productos activos
   });
 
-  const { products, pagination, isLoading, error, createProduct, updateProduct, deleteProduct } = useProducts(filters);
+  const { products, isLoading, error, createProduct, updateProduct, deleteProduct } = useProducts();
   const { categories } = useCategories();
+
+  // Filter logic (aplicado localmente, similar a CategoriesPage)
+  const filteredProducts = products.filter(product => {
+    // Filtrar por búsqueda
+    const searchLower = (filters.search || '').toLowerCase();
+    const matchesSearch = !searchLower || 
+      product.name.toLowerCase().includes(searchLower) ||
+      (product.sku && product.sku.toLowerCase().includes(searchLower)) ||
+      (product.barcode && product.barcode.toLowerCase().includes(searchLower));
+    
+    // Filtrar por categoría
+    const matchesCategory = !filters.categoryId || product.categoryId === filters.categoryId;
+    
+    // Filtrar por estado
+    const matchesStatus = filters.isActive === undefined || product.isActive === filters.isActive;
+    
+    // Filtrar por stock bajo
+    const matchesLowStock = !filters.lowStock || product.stock <= product.minStock;
+    
+    return matchesSearch && matchesCategory && matchesStatus && matchesLowStock;
+  });
+
+  // Pagination logic (aplicado sobre productos filtrados)
+  const startIndex = ((filters.page || 1) - 1) * (filters.limit || 10);
+  const endIndex = startIndex + (filters.limit || 10);
+  const paginatedProducts = filteredProducts.slice(startIndex, endIndex);
+  const totalPages = Math.ceil(filteredProducts.length / (filters.limit || 10));
 
   // Modal states
   const [showProductModal, setShowProductModal] = useState(false);
@@ -34,7 +62,11 @@ const ProductsPage: React.FC = () => {
   };
 
   const handleStockFilter = (lowStock: boolean) => {
-    setFilters(prev => ({ ...prev, lowStock, page: 1 }));
+    setFilters(prev => ({ 
+      ...prev, 
+      lowStock: lowStock ? true : undefined, 
+      page: 1 
+    }));
   };
 
   const handleActiveFilter = (isActive: boolean | undefined) => {
@@ -216,13 +248,18 @@ const ProductsPage: React.FC = () => {
 
               <div className="flex items-end">
                 <button
-                  onClick={() => setFilters({ 
-                    page: 1, 
-                    limit: 10, 
-                    sortBy: 'name', 
-                    sortOrder: 'ASC',
-                    isActive: true
-                  })}
+                  onClick={() => {
+                    setFilters({ 
+                      search: '',
+                      page: 1, 
+                      limit: 10, 
+                      sortBy: 'name', 
+                      sortOrder: 'ASC',
+                      isActive: true,
+                      categoryId: undefined,
+                      lowStock: undefined
+                    });
+                  }}
                   className="w-full px-3 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-md transition-colors text-sm"
                 >
                   Limpiar Filtros
@@ -238,11 +275,11 @@ const ProductsPage: React.FC = () => {
             <h3 className="text-lg font-medium text-white">
               {filters.isActive === false ? 'Productos Eliminados' : 
                filters.isActive === undefined ? 'Todos los Productos' : 
-               'Productos Activos'} ({pagination?.totalItems || 0})
+               'Productos Activos'} ({filteredProducts.length})
             </h3>
           </div>
           
-          {products.length === 0 ? (
+          {filteredProducts.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-gray-400">No se encontraron productos</p>
             </div>
@@ -275,7 +312,7 @@ const ProductsPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-700">
-                  {products.map((product: Product) => (
+                  {paginatedProducts.map((product: Product) => (
                     <tr key={product.id} className="hover:bg-gray-700 transition-colors">
                       <td className="px-4 py-2">
                         <div>
@@ -368,21 +405,21 @@ const ProductsPage: React.FC = () => {
           )}
 
             {/* Paginación */}
-            {pagination && pagination.totalPages > 1 && (
+            {totalPages > 1 && (
               <div className="flex items-center justify-between px-6 py-3 bg-gray-800 border-t border-gray-600">
                 <div className="flex-1 flex justify-between sm:hidden">
                   <Button
                     variant="secondary"
-                    disabled={pagination.currentPage <= 1}
-                    onClick={() => handlePageChange(pagination.currentPage - 1)}
+                    disabled={(filters.page || 1) <= 1}
+                    onClick={() => handlePageChange((filters.page || 1) - 1)}
                     darkMode={true}
                   >
                     Anterior
                   </Button>
                   <Button
                     variant="secondary"
-                    disabled={pagination.currentPage >= pagination.totalPages}
-                    onClick={() => handlePageChange(pagination.currentPage + 1)}
+                    disabled={(filters.page || 1) >= totalPages}
+                    onClick={() => handlePageChange((filters.page || 1) + 1)}
                     darkMode={true}
                   >
                     Siguiente
@@ -393,25 +430,25 @@ const ProductsPage: React.FC = () => {
                     <p className="text-sm text-gray-300">
                       Mostrando{' '}
                       <span className="font-medium text-white">
-                        {((pagination.currentPage - 1) * pagination.itemsPerPage) + 1}
+                        {startIndex + 1}
                       </span>{' '}
                       a{' '}
                       <span className="font-medium text-white">
-                        {Math.min(pagination.currentPage * pagination.itemsPerPage, pagination.totalItems)}
+                        {Math.min(endIndex, filteredProducts.length)}
                       </span>{' '}
                       de{' '}
-                      <span className="font-medium text-white">{pagination.totalItems}</span>{' '}
+                      <span className="font-medium text-white">{filteredProducts.length}</span>{' '}
                       productos
                     </p>
                   </div>
                   <div>
                     <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
-                      {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map((page) => (
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
                         <button
                           key={page}
                           onClick={() => handlePageChange(page)}
                           className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium transition-colors ${
-                            page === pagination.currentPage
+                            page === (filters.page || 1)
                               ? 'z-10 bg-blue-600 border-blue-500 text-white'
                               : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600'
                           }`}
@@ -425,32 +462,6 @@ const ProductsPage: React.FC = () => {
               </div>
             )}
         </div>
-
-        {/* Paginación */}
-        {pagination && pagination.totalPages > 1 && (
-          <div className="flex justify-between items-center mt-4">
-            <div className="text-sm text-gray-400">
-              Página {pagination.currentPage} de {pagination.totalPages} 
-              ({pagination.totalItems} productos en total)
-            </div>
-            <div className="flex space-x-2">
-              <button
-                onClick={() => setFilters(prev => ({ ...prev, page: (prev.page || 1) - 1 }))}
-                disabled={pagination.currentPage === 1}
-                className="px-3 py-2 text-sm bg-gray-700 hover:bg-gray-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed border border-gray-600"
-              >
-                Anterior
-              </button>
-              <button
-                onClick={() => setFilters(prev => ({ ...prev, page: (prev.page || 1) + 1 }))}
-                disabled={pagination.currentPage === pagination.totalPages}
-                className="px-3 py-2 text-sm bg-gray-700 hover:bg-gray-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed border border-gray-600"
-              >
-                Siguiente
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Product Modal */}
